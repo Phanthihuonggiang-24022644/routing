@@ -49,10 +49,10 @@ class DVrouter(Router):
                 continue
 
             min_cost = self.INFINITY
-            best_port = None   # FIX: best_post -> best_port
+            best_port = None  
 
             #1. Nếu dst là neighbor thì dùng luôn đường đó
-            for port, endpoint in self.endpoints.items():   # FIX: endpoints -> endpoint
+            for port, endpoint in self.endpoints.items(): 
                 if endpoint == dst:
                     cost = self.link_costs[port] #lấy chi phí trực tiếp qua cổng đó
                     if cost < min_cost:
@@ -63,11 +63,14 @@ class DVrouter(Router):
             for port, dv in self.neighbor_dvs.items():
                 # Nếu port có kết nối tới neighbor và neighbor biết đường tới dst
                 if port in self.link_costs and dst in dv:
+                    # Bỏ qua các link vô cực
                     if dv[dst] >= self.INFINITY:
                         continue
 
+                    # cost = từ source-> neighbor + từ neighbor-> dst
                     cost = self.link_costs[port] + dv[dst]
                 
+                    #chọn đường đi ngắn nhất
                     if cost < min_cost:
                         min_cost = cost
                         best_port = port
@@ -81,19 +84,23 @@ class DVrouter(Router):
         self.forwarding_table = new_table
         return changed
         
-    #Gửi bảng định tuyến cho neighbor
+    #Gửi bảng định tuyến thông báo kết quả tính toán cho neighbor
     def broadcast_dv(self):
         """Gửi bảng DV cho tất cả neighbor"""
-        for port,endpoint in self.endpoints.items():
-            dv_to_send = {}
+        for port,endpoint in self.endpoints.items(): #duyệt qua tất cả hàng xóm
+            dv_to_send = {} #tạo bảng định tuyến gửi
+            #duyệt toàn bộ bảng định tuyến
             for dst, (cost,next_hop) in self.forwarding_table.items():
             #Nếu đi đến đích phải mượn neighbor thì sẽ nói dối không biết đường đến đích để tránh lặp
+            #next_hop : cổng mà router đang dùng để đi tới đích
+            #port : cổng của neighbor mà ta sắp gửi DV
+            #vd A->B->D mà B->D bị mất mà B vẫn tưởng A->D được thì nó sẽ tạo đường B->A->D
                 if next_hop == port:
                     dv_to_send[dst] = self.INFINITY
                 else:
                     dv_to_send[dst] = cost
 
-            #Đóng gói thành chuỗi JSON và gửi
+            #Đóng gói thành chuỗi JSON và gửi pkt chứa thông tin mạng,nguồn,đích
             packet = Packet(Packet.ROUTING,self.addr, endpoint)
             packet.content = json.dumps(dv_to_send) #chuyển dict thành string để gửi
             self.send(port, packet)    
@@ -109,6 +116,7 @@ class DVrouter(Router):
                     self.send(target_port, packet)
         else:
             #Nếu là routing packet của neighbor , mở gói tin và cập nhật bộ nhớ
+            #nhận dv-> lưu dv -> recompute(đọc neighbor_dvs -> tính lại fowarding_table-> so sánh bảng cũ)-> thay đổi thì gửi dv mới
             try:
                 neighbor_dv = json.loads(packet.content)
                 self.neighbor_dvs[port] = neighbor_dv
@@ -125,11 +133,11 @@ class DVrouter(Router):
         """Handle new link."""
         self.link_costs[port] = cost
         self.endpoints[port] = endpoint
-        self.neighbor_dvs[port] = {endpoint: 0}
+        self.neighbor_dvs[port] = {endpoint: 0} #Vì một router luôn biết đường tới chính nó với cost 0.
         if self.recompute():
             self.broadcast_dv()
         
-
+    #hàm được gọi khi có một kết nối bị mất vd dây mạng bị đứt, node tắt hoặc link bị timeout
     def handle_remove_link(self, port):
         """Handle removed link."""
         # Xóa mọi ký ức về cổng đã chết
